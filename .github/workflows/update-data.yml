@@ -43,8 +43,8 @@ jobs:
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
-        # 添加所有變更
-        git add data/ dist/ version.txt
+        # 添加所有變更（包括新檔案）
+        git add -A
         
         # 檢查是否有變更
         if git diff --staged --quiet; then
