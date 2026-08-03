@@ -10,6 +10,7 @@ import gzip
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
+from datetime import datetime
 import pandas as pd
 import requests
 
@@ -37,6 +38,7 @@ LANG_ORDER = ["Ja", "En", "Fr", "De", "Cn", "Tc", "Ko"]
 # 輸出檔案名稱
 OUTPUT_CSV = "ffxiv_items_all_languages.csv"
 OUTPUT_JSON_GZ = "ffxiv_items_all_languages.json.gz"
+VERSION_FILE = "version.txt"
 
 class FFXIVItemDataProcessor:
     """FFXIV 物品數據處理器"""
@@ -45,6 +47,7 @@ class FFXIVItemDataProcessor:
         self.data_dir = Path(data_dir)
         self.output_dir = Path(output_dir)
         self.all_dfs: Dict[str, pd.DataFrame] = {}
+        self.run_timestamp = datetime.now()
         
     def setup_directories(self) -> None:
         """建立必要的目錄"""
@@ -243,7 +246,6 @@ class FFXIVItemDataProcessor:
         output_path = self.output_dir / OUTPUT_JSON_GZ
         
         # 轉換為 JSON 格式
-        # 將 DataFrame 轉換為字典列表，並確保所有值都是 JSON 可序列化的
         records = df.to_dict(orient="records")
         
         # 壓縮並寫入
@@ -254,6 +256,32 @@ class FFXIVItemDataProcessor:
         file_size_kb = output_path.stat().st_size / 1024
         logger.info(f"✅ JSON 壓縮檔已儲存至 `{output_path}` ({file_size_kb:.1f} KB)")
         return output_path
+    
+    def save_version_file(self, metadata: Dict) -> Path:
+        """儲存版本資訊檔案"""
+        version_path = self.output_dir / VERSION_FILE
+        
+        # 格式化版本資訊
+        version_content = f"""# FFXIV Item Data - Version Information
+Generated: {self.run_timestamp.strftime('%Y-%m-%d %H:%M:%S %Z')}
+Timestamp: {self.run_timestamp.isoformat()}
+Records: {metadata.get('record_count', 0)}
+Languages: {', '.join(LANG_ORDER)}
+Sources:
+  - International: EN, FR, DE, JA (xivapi/ffxiv-datamining)
+  - Traditional Chinese: thewakingsands/ffxiv-datamining-tc
+  - Simplified Chinese: thewakingsands/ffxiv-datamining-cn
+  - Korean: Ra-Workspace/ffxiv-datamining-ko
+Output Files:
+  - CSV: {OUTPUT_CSV}
+  - JSON GZ: {OUTPUT_JSON_GZ}
+"""
+        
+        with open(version_path, "w", encoding="utf-8") as f:
+            f.write(version_content)
+        
+        logger.info(f"✅ 版本資訊已儲存至 `{version_path}`")
+        return version_path
     
     def run(self) -> Dict[str, Path]:
         """執行完整的處理流程"""
@@ -282,9 +310,17 @@ class FFXIVItemDataProcessor:
         csv_path = self.save_csv(final_df)
         json_gz_path = self.save_json_gz(final_df)
         
+        # 儲存版本資訊
+        metadata = {
+            'record_count': len(final_df),
+            'timestamp': self.run_timestamp.isoformat()
+        }
+        version_path = self.save_version_file(metadata)
+        
         return {
             "csv": csv_path,
-            "json_gz": json_gz_path
+            "json_gz": json_gz_path,
+            "version": version_path
         }
 
 def main():
@@ -296,6 +332,7 @@ def main():
         logger.info("🎉 所有處理程序完成！")
         logger.info(f"📄 CSV 檔案: {output_files['csv']}")
         logger.info(f"📦 JSON 壓縮檔: {output_files['json_gz']}")
+        logger.info(f"📋 版本檔案: {output_files['version']}")
         
     except Exception as e:
         logger.error(f"❌ 處理過程中發生錯誤: {e}")

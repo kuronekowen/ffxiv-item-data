@@ -7,7 +7,7 @@ on:
   workflow_dispatch:  # 允許手動觸發
 
 permissions:
-  contents: write  # 只需要寫入權限
+  contents: write  # 需要寫入權限來創建 Release 和提交
 
 jobs:
   update-data:
@@ -16,6 +16,8 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 獲取完整的 git 歷史
     
     - name: Setup Python
       uses: actions/setup-python@v5
@@ -28,47 +30,77 @@ jobs:
         pip install -r requirements.txt
     
     - name: Run data processor
+      id: processor
       run: |
         python scripts/main.py
+        
+        # 獲取當前的日期時間作為版本標籤
+        echo "VERSION_TAG=$(date +'v%Y.%m.%d-%H%M')" >> $GITHUB_OUTPUT
+        echo "RELEASE_DATE=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_OUTPUT
     
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
+        # 添加所有變更
+        git add data/ dist/ version.txt
+        
         # 檢查是否有變更
-        if git diff --quiet; then
+        if git diff --staged --quiet; then
           echo "✅ 沒有發現變更"
         else
-          git add dist/ data/
-          git commit -m "Update FFXIV item data $(date +'%Y-%m-%d %H:%M:%S')"
+          git commit -m "Update FFXIV item data - ${{ steps.processor.outputs.RELEASE_DATE }}"
           git push
           echo "✅ 變更已提交並推送"
         fi
     
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
       with:
-        name: ffxiv-data-$(date +'%Y%m%d')
-        path: |
-          dist/*.csv
-          dist/*.json.gz
-        retention-days: 30  # 保留 30 天
+        name: "FFXIV Item Data ${{ steps.processor.outputs.RELEASE_DATE }}"
+        tag_name: ${{ steps.processor.outputs.VERSION_TAG }}
+        body: |
+          ## FFXIV 物品數據更新
+          
+          **更新時間**: ${{ steps.processor.outputs.RELEASE_DATE }}
+          
+          ### 📦 包含檔案
+          - `ffxiv_items_all_languages.csv` - 合併後的 CSV 檔案
+          - `ffxiv_items_all_languages.json.gz` - 壓縮的 JSON 檔案
+          - `version.txt` - 版本資訊
+          
+          ### 🌐 支援語言
+          - 日文 (Ja)、英文 (En)、法文 (Fr)、德文 (De)
+          - 簡體中文 (Cn)、繁體中文 (Tc)、韓文 (Ko)
+          
+          ### 📊 數據來源
+          - 國際服: xivapi/ffxiv-datamining
+          - 繁體中文: thewakingsands/ffxiv-datamining-tc
+          - 簡體中文: thewakingsands/ffxiv-datamining-cn
+          - 韓文: Ra-Workspace/ffxiv-datamining-ko
+        files: |
+          dist/ffxiv_items_all_languages.csv
+          dist/ffxiv_items_all_languages.json.gz
+          dist/version.txt
+        draft: false
+        prerelease: false
+        generate_release_notes: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # 可選：發送通知
-  notify:
+  # 可選：清理舊的 Release（保留最近 30 個）
+  cleanup-releases:
     needs: update-data
     runs-on: ubuntu-latest
     if: always()
     
     steps:
-    - name: Check status
-      run: |
-        if [ "${{ needs.update-data.result }}" == "success" ]; then
-          echo "✅ 數據更新成功！"
-          echo "📊 CSV 檔案已更新"
-          echo "📦 JSON 壓縮檔已更新"
-        else
-          echo "❌ 數據更新失敗！"
-          exit 1
-        fi
+    - name: Cleanup old releases
+      uses: dev-drprasad/delete-older-releases@v0.3.4
+      with:
+        keep_latest: 30  # 保留最近 30 個 Release
+        delete_tags: true
+        delete_tag_pattern: 'v*'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
