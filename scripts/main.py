@@ -151,8 +151,8 @@ class FFXIVItemDataProcessor:
             sub_df["ID"] = df[0]
             sub_df[lang_code] = df[1].fillna("").astype(str)
             
-            if df.shape[1] > 3:
-                sub_df[f"{lang_code}_Description"] = df[3].fillna("").astype(str)
+            if df.shape[1] > 9:
+                sub_df[f"{lang_code}_Description"] = df[9].fillna("").astype(str)
             else:
                 sub_df[f"{lang_code}_Description"] = ""
             
