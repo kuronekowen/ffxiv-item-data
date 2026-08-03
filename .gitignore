@@ -25,8 +25,10 @@ wheels/
 MANIFEST
 
 # 數據檔案
-data/
+data/*
 !data/.gitkeep
+!data/ffxiv_items_all_languages.csv
+!data/ffxiv_items_all_languages.json.gz
 
 # 輸出檔案
 dist/
