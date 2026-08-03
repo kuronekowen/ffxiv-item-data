@@ -7,9 +7,7 @@ on:
   workflow_dispatch:  # 允許手動觸發
 
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: write  # 只需要寫入權限
 
 jobs:
   update-data:
@@ -37,45 +35,40 @@ jobs:
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add dist/ data/
-        git diff --staged --quiet || git commit -m "Update FFXIV item data $(date +'%Y-%m-%d')"
-        git push
+        
+        # 檢查是否有變更
+        if git diff --quiet; then
+          echo "✅ 沒有發現變更"
+        else
+          git add dist/ data/
+          git commit -m "Update FFXIV item data $(date +'%Y-%m-%d %H:%M:%S')"
+          git push
+          echo "✅ 變更已提交並推送"
+        fi
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ffxiv-data
+        name: ffxiv-data-$(date +'%Y%m%d')
         path: |
           dist/*.csv
           dist/*.json.gz
-    
-    - name: Setup Pages
-      if: github.ref == 'refs/heads/main'
-      uses: actions/configure-pages@v4
-    
-    - name: Upload to GitHub Pages
-      if: github.ref == 'refs/heads/main'
-      uses: actions/upload-pages-artifact@v3
-      with:
-        path: 'dist'
-    
-    - name: Deploy to GitHub Pages
-      if: github.ref == 'refs/heads/main'
-      id: deployment
-      uses: actions/deploy-pages@v4
+        retention-days: 30  # 保留 30 天
 
   # 可選：發送通知
   notify:
     needs: update-data
     runs-on: ubuntu-latest
-    if: always()  # 不論成功與否都發送通知
+    if: always()
     
     steps:
     - name: Check status
       run: |
         if [ "${{ needs.update-data.result }}" == "success" ]; then
-          echo "✅ Data update successful!"
+          echo "✅ 數據更新成功！"
+          echo "📊 CSV 檔案已更新"
+          echo "📦 JSON 壓縮檔已更新"
         else
-          echo "❌ Data update failed!"
+          echo "❌ 數據更新失敗！"
           exit 1
         fi
