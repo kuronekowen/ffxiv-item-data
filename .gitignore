@@ -25,6 +25,7 @@ wheels/
 MANIFEST
 
 # 數據檔案
+# 忽略 data/ 下的原始下載檔，但追蹤處理後的最終輸出檔
 data/*
 !data/.gitkeep
 !data/ffxiv_items_all_languages.csv

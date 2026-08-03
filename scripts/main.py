@@ -8,6 +8,7 @@ import os
 import json
 import gzip
 import logging
+import shutil
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
@@ -306,9 +307,18 @@ Output Files:
         final_df = self.clean_and_finalize(merged_df)
         logger.info(f"✨ 清理完成: {len(final_df)} 筆數據")
         
-        # 儲存檔案
+        # 儲存檔案到 dist/
         csv_path = self.save_csv(final_df)
         json_gz_path = self.save_json_gz(final_df)
+        
+        # 同步最新資料到 data/ 目錄（供專案目錄直接使用，並可被 git 追蹤）
+        data_csv_path = self.data_dir / OUTPUT_CSV
+        data_json_gz_path = self.data_dir / OUTPUT_JSON_GZ
+        shutil.copy2(csv_path, data_csv_path)
+        shutil.copy2(json_gz_path, data_json_gz_path)
+        logger.info(f"✅ 已同步最新資料至 data/：")
+        logger.info(f"   └─ {data_csv_path}")
+        logger.info(f"   └─ {data_json_gz_path}")
         
         # 儲存版本資訊
         metadata = {
@@ -320,7 +330,9 @@ Output Files:
         return {
             "csv": csv_path,
             "json_gz": json_gz_path,
-            "version": version_path
+            "version": version_path,
+            "data_csv": data_csv_path,
+            "data_json_gz": data_json_gz_path,
         }
 
 def main():
@@ -330,8 +342,10 @@ def main():
         output_files = processor.run()
         
         logger.info("🎉 所有處理程序完成！")
-        logger.info(f"📄 CSV 檔案: {output_files['csv']}")
-        logger.info(f"📦 JSON 壓縮檔: {output_files['json_gz']}")
+        logger.info(f"📄 CSV 檔案 (dist/): {output_files['csv']}")
+        logger.info(f"📦 JSON 壓縮檔 (dist/): {output_files['json_gz']}")
+        logger.info(f"📄 CSV 檔案 (data/): {output_files['data_csv']}")
+        logger.info(f"📦 JSON 壓縮檔 (data/): {output_files['data_json_gz']}")
         logger.info(f"📋 版本檔案: {output_files['version']}")
         
     except Exception as e:
