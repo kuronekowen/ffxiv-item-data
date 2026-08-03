@@ -61,24 +61,7 @@ jobs:
         name: "FFXIV Item Data ${{ steps.processor.outputs.RELEASE_DATE }}"
         tag_name: ${{ steps.processor.outputs.VERSION_TAG }}
         body: |
-          ## FFXIV 物品數據更新
-          
           **更新時間**: ${{ steps.processor.outputs.RELEASE_DATE }}
-          
-          ### 📦 包含檔案
-          - `ffxiv_items_all_languages.csv` - 合併後的 CSV 檔案
-          - `ffxiv_items_all_languages.json.gz` - 壓縮的 JSON 檔案
-          - `version.txt` - 版本資訊
-          
-          ### 🌐 支援語言
-          - 日文 (Ja)、英文 (En)、法文 (Fr)、德文 (De)
-          - 簡體中文 (Cn)、繁體中文 (Tc)、韓文 (Ko)
-          
-          ### 📊 數據來源
-          - 國際服: xivapi/ffxiv-datamining
-          - 繁體中文: thewakingsands/ffxiv-datamining-tc
-          - 簡體中文: thewakingsands/ffxiv-datamining-cn
-          - 韓文: Ra-Workspace/ffxiv-datamining-ko
         files: |
           dist/ffxiv_items_all_languages.csv
           dist/ffxiv_items_all_languages.json.gz
