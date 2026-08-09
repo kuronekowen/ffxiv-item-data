@@ -15,10 +15,25 @@ Final Fantasy XIV 道具資料整合庫，彙整多語言道具編號、名稱�
 | 簡體中文 | [thewakingsands/ffxiv-datamining-cn](https://github.com/thewakingsands/ffxiv-datamining-cn) |
 | 韓文 | [Ra-Workspace/ffxiv-datamining-ko](https://github.com/Ra-Workspace/ffxiv-datamining-ko) |
 
-## 資料存取
+## 資料存取與 API
 
-可直接透過 jsDelivr CDN 取得最新的壓縮資料：
+本專案透過 jsDelivr CDN 與 Data API 提供穩定且帶有版本控管的存取管道：
 
+### 1. 查詢最新版本號 API
+在下載數據包前，建議先查詢版本 API 取得最新 Tag（例如 `2026.08.08-0328`），以便進行本地快取比對：
+
+```
+https://data.jsdelivr.com/v1/packages/gh/kuronekowen/ffxiv-item-data
+```
+
+### 2. 下載資料檔案 (.gz)
+
+特定版本（推薦，利於 CDN 快取）：
+```
+https://cdn.jsdelivr.net/gh/kuronekowen/ffxiv-item-data@{version}/data/ffxiv_items_all_languages.json.gz
+```
+
+最新版本（直接拉取）：
 ```
 https://cdn.jsdelivr.net/gh/kuronekowen/ffxiv-item-data@latest/data/ffxiv_items_all_languages.json.gz
 ```
@@ -68,21 +83,48 @@ https://cdn.jsdelivr.net/gh/kuronekowen/ffxiv-item-data@latest/data/ffxiv_items_
 - `De`：德文
 - `Ko`：韓文
 
-## 使用方式
+## 使用方式與快取最佳實踐
+由於完整資料庫壓縮檔較大（約 5MB+），建議前端專案配合 IndexedDB 或 LocalStorage 實現快取比對機制，避免重複下載。
 
-### 直接透過 CDN 載入
+### JavaScript 範例 (結合版本檢查與 IndexedDB 快取)
 
-```javascript
-// 使用 fetch 取得並解壓縮
-const response = await fetch(
-  'https://cdn.jsdelivr.net/gh/kuronekowen/ffxiv-item-data@latest/data/ffxiv_items_all_languages.json.gz'
-);
-const ds = new DecompressionStream('gzip');
-const decompressed = response.body.pipeThrough(ds);
-const text = await new Response(decompressed).text();
-const items = JSON.parse(text);
+``` JavaScript
+const REPO = 'kuronekowen/ffxiv-item-data';
 
-console.log(items[0]); // 第一筆道具資料
+async function getFFXIVData() {
+  // 1. 查詢 jsDelivr API 取得最新 Release Tag (僅約幾百 Bytes)
+  const apiRes = await fetch(`[https://data.jsdelivr.com/v1/packages/gh/$](https://data.jsdelivr.com/v1/packages/gh/$){REPO}`);
+  const apiData = await apiRes.json();
+  const latestVersion = apiData.versions[0].version; // 例如 "2026.08.08-0328"
+
+  // 2. 檢查本地快取的版本標籤
+  const localVersion = localStorage.getItem('ffxiv_data_version');
+  
+  // (假設 getLocalDB() 為讀取本地 IndexedDB 的自訂函式)
+  const cachedData = await getLocalDB(); 
+
+  // 3. 版本吻合則直接使用快取
+  if (cachedData && localVersion === latestVersion) {
+    console.log(`[FFXIV Data] 使用本地快取版本: ${latestVersion}`);
+    return cachedData;
+  }
+
+  // 4. 版本不符，載入指定 Tag 的最新數據包
+  console.log(`[FFXIV Data] 下載新版本: ${latestVersion}`);
+  const gzUrl = `[https://cdn.jsdelivr.net/gh/$](https://cdn.jsdelivr.net/gh/$){REPO}@${latestVersion}/data/ffxiv_items_all_languages.json.gz`;
+  const response = await fetch(gzUrl);
+  
+  // Gzip 解壓縮
+  const ds = new DecompressionStream('gzip');
+  const decompressed = response.body.pipeThrough(ds);
+  const items = await new Response(decompressed).json();
+
+  // 5. 寫入本地快取
+  await setLocalDB(items);
+  localStorage.setItem('ffxiv_data_version', latestVersion);
+
+  return items;
+}
 ```
 
 ### 本地使用
