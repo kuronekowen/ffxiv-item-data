@@ -20,7 +20,7 @@ Final Fantasy XIV 道具資料整合庫，彙整多語言道具編號、名稱�
 本專案透過 jsDelivr CDN 與 Data API 提供穩定且帶有版本控管的存取管道：
 
 ### 1. 查詢最新版本號 API
-在下載數據包前，建議先查詢版本 API 取得最新 Tag（例如 `2026.08.08-0328`），以便進行本地快取比對：
+在下載數據包前，必須先查詢版本 API 取得最新 Tag（例如 `2026.08.08-0328`），以便進行本地快取比對：
 
 ```
 https://data.jsdelivr.com/v1/packages/gh/kuronekowen/ffxiv-item-data
@@ -28,14 +28,9 @@ https://data.jsdelivr.com/v1/packages/gh/kuronekowen/ffxiv-item-data
 
 ### 2. 下載資料檔案 (.gz)
 
-特定版本（推薦，利於 CDN 快取）：
+指定版本（推薦，利於 CDN 快取）：
 ```
 https://cdn.jsdelivr.net/gh/kuronekowen/ffxiv-item-data@{version}/data/ffxiv_items_all_languages.json.gz
-```
-
-最新版本（直接拉取）：
-```
-https://cdn.jsdelivr.net/gh/kuronekowen/ffxiv-item-data@latest/data/ffxiv_items_all_languages.json.gz
 ```
 
 解壓縮後即可得到完整的 JSON 陣列
