@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-FFXIV 物品數據整合工具
-下載並合併 7 種語言的物品數據，輸出 CSV 和壓縮 JSON
+FFXIV 物品數據整合工具 (帶 Lodestone 自動更新檢查)
+1. 爬取 FFXIV 日本官網 Lodestone 判定今天是否有遊戲更新。
+2. 若有更新，才下載並合併 7 種語言的物品數據，輸出 CSV 和壓縮 JSON。
+3. 若無更新，跳過處理以節省系統資源。
 """
 
 import os
+import sys
 import json
 import gzip
 import logging
 import shutil
+import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 
 # 設置日誌
 logging.basicConfig(
@@ -40,6 +45,52 @@ LANG_ORDER = ["Ja", "En", "Fr", "De", "Cn", "Tc", "Ko"]
 OUTPUT_CSV = "ffxiv_items_all_languages.csv"
 OUTPUT_JSON_GZ = "ffxiv_items_all_languages.json.gz"
 VERSION_FILE = "version.txt"
+LODESTONE_URL = "https://jp.finalfantasyxiv.com/lodestone/news/category/3"
+
+
+class LodestoneUpdateChecker:
+    """Lodestone 官網更新檢查器"""
+
+    @staticmethod
+    def has_today_update() -> bool:
+        """檢查 Lodestone 第一條新聞是否為『更新のお知らせ』且日期為今天"""
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        
+        try:
+            logger.info(f"🌐 正在檢查 Lodestone 官網更新公告: {LODESTONE_URL}")
+            resp = requests.get(LODESTONE_URL, headers=headers, timeout=15)
+            resp.raise_for_status()
+
+            soup = BeautifulSoup(resp.text, "html.parser")
+            titles = soup.find_all(class_="news__list--title")
+
+            if not titles:
+                logger.warning("⚠️ 未能解析到任何 Lodestone 新聞標題，預設進行更新。")
+                return True
+
+            first_title = titles[0].get_text(strip=True)
+            logger.info(f"📰 最新 Lodestone 公告: {first_title}")
+
+            # 取得當前日期的月/日格式 (無補零，例如 8/7, 10/12)
+            now = datetime.now()
+            today_str = f"{now.month}/{now.day}"
+
+            # 檢查條件：開頭為 '更新のお知らせ' 且包含當天日期 '(M/D)'
+            # 支援括號範例：更新のお知らせ(8/7) 或 更新のお知らせ (8/7)
+            is_update_news = first_title.startswith("更新のお知らせ")
+            has_today_date = f"({today_str})" in first_title
+
+            if is_update_news and has_today_date:
+                logger.info(f"✨ 偵測到今日 ({today_str}) 有遊戲更新公告！開始執行資料管道...")
+                return True
+            else:
+                logger.info(f"☕ 今日 ({today_str}) 尚未發布遊戲更新 (最新公告日期/類型不符)，跳過本次更新。")
+                return False
+
+        except Exception as e:
+            logger.error(f"❌ 爬取 Lodestone 失敗: {e}，為防漏掉資料，將強制執行更新。")
+            return True
+
 
 class FFXIVItemDataProcessor:
     """FFXIV 物品數據處理器"""
@@ -136,7 +187,6 @@ class FFXIVItemDataProcessor:
             return None
         
         try:
-            # 跳過 1, 2 行型態標籤
             df = pd.read_csv(file_path, skiprows=[1, 2], header=None, low_memory=False)
             
             lang_code = lang.capitalize()
@@ -146,7 +196,7 @@ class FFXIVItemDataProcessor:
             df = df.dropna(subset=[0])
             df[0] = df[0].astype(int)
             
-            # 提取 Name (col 1) 與 Description (col 3)
+            # 提取 Name (col 1) 與 Description (col 3/9)
             sub_df = pd.DataFrame()
             sub_df["ID"] = df[0]
             sub_df[lang_code] = df[1].fillna("").astype(str)
@@ -165,14 +215,12 @@ class FFXIVItemDataProcessor:
     
     def process_all_languages(self) -> None:
         """處理所有語言的數據"""
-        # 處理國際服
         int_langs = ["ja", "en", "fr", "de"]
         for lang in int_langs:
             df = self.process_international_csv(lang)
             if df is not None:
                 self.all_dfs[lang.capitalize()] = df
         
-        # 處理獨立服
         ext_langs = ["cn", "tc", "ko"]
         for lang in ext_langs:
             df = self.process_extended_csv(lang)
@@ -189,7 +237,6 @@ class FFXIVItemDataProcessor:
                     merged_df = self.all_dfs[lang_code]
                 else:
                     df_to_merge = self.all_dfs[lang_code]
-                    # 避免多重 Icon 欄位衝突
                     if "Icon" in merged_df.columns and "Icon" in df_to_merge.columns:
                         df_to_merge = df_to_merge.drop(columns=["Icon"])
                     merged_df = pd.merge(merged_df, df_to_merge, on="ID", how="outer")
@@ -208,29 +255,23 @@ class FFXIVItemDataProcessor:
             "Cn_Description", "Tc_Description", "Ko_Description"
         ]
         
-        # 補齊可能不存在的欄位
         for col in final_columns:
             if col not in df.columns:
                 df[col] = ""
         
-        # 選擇需要的欄位並排序
         final_df = df[final_columns].sort_values("ID").reset_index(drop=True)
         
-        # 區分文字欄位和數值欄位
         text_columns = [col for col in final_columns if col not in ["ID", "Icon"]]
         numeric_columns = ["Icon"] if "Icon" in final_columns else []
         
-        # 文字欄位填充空字串
         for col in text_columns:
             if col in final_df.columns:
                 final_df[col] = final_df[col].fillna("").astype(str)
         
-        # 數值欄位填充 0 並轉為整數
         for col in numeric_columns:
             if col in final_df.columns:
                 final_df[col] = pd.to_numeric(final_df[col], errors="coerce").fillna(0).astype(int)
         
-        # 確保 ID 是整數
         final_df["ID"] = pd.to_numeric(final_df["ID"], errors="coerce").fillna(0).astype(int)
         
         return final_df
@@ -246,14 +287,11 @@ class FFXIVItemDataProcessor:
         """儲存壓縮 JSON 檔案"""
         output_path = self.output_dir / OUTPUT_JSON_GZ
         
-        # 轉換為 JSON 格式
         records = df.to_dict(orient="records")
         
-        # 壓縮並寫入
         with gzip.open(output_path, "wt", encoding="utf-8") as f:
             json.dump(records, f, ensure_ascii=False, indent=None)
         
-        # 獲取檔案大小
         file_size_kb = output_path.stat().st_size / 1024
         logger.info(f"✅ JSON 壓縮檔已儲存至 `{output_path}` ({file_size_kb:.1f} KB)")
         return output_path
@@ -262,7 +300,6 @@ class FFXIVItemDataProcessor:
         """儲存版本資訊檔案"""
         version_path = self.output_dir / VERSION_FILE
         
-        # 格式化版本資訊
         version_content = f"""# FFXIV Item Data - Version Information
 Generated: {self.run_timestamp.strftime('%Y-%m-%d %H:%M:%S %Z')}
 Timestamp: {self.run_timestamp.isoformat()}
@@ -288,7 +325,6 @@ Output Files:
         """執行完整的處理流程"""
         self.setup_directories()
         
-        # 下載檔案
         download_results = self.download_files()
         success_count = sum(1 for v in download_results.values() if v)
         logger.info(f"📥 下載完成: {success_count}/{len(URLS)} 個檔案成功")
@@ -296,22 +332,17 @@ Output Files:
         if success_count == 0:
             raise RuntimeError("所有檔案下載失敗，無法繼續處理")
         
-        # 處理數據
         self.process_all_languages()
         
-        # 合併數據
         merged_df = self.merge_all_data()
         logger.info(f"📊 合併完成: {len(merged_df)} 筆數據")
         
-        # 清理和格式化
         final_df = self.clean_and_finalize(merged_df)
         logger.info(f"✨ 清理完成: {len(final_df)} 筆數據")
         
-        # 儲存檔案到 dist/
         csv_path = self.save_csv(final_df)
         json_gz_path = self.save_json_gz(final_df)
         
-        # 同步最新資料到 data/ 目錄（供專案目錄直接使用，並可被 git 追蹤）
         data_csv_path = self.data_dir / OUTPUT_CSV
         data_json_gz_path = self.data_dir / OUTPUT_JSON_GZ
         shutil.copy2(csv_path, data_csv_path)
@@ -320,7 +351,6 @@ Output Files:
         logger.info(f"   └─ {data_csv_path}")
         logger.info(f"   └─ {data_json_gz_path}")
         
-        # 儲存版本資訊
         metadata = {
             'record_count': len(final_df),
             'timestamp': self.run_timestamp.isoformat()
@@ -335,9 +365,16 @@ Output Files:
             "data_json_gz": data_json_gz_path,
         }
 
+
 def main():
     """主程式入口"""
     try:
+        # 1. 執行 Lodestone 前置檢查
+        if not LodestoneUpdateChecker.has_today_update():
+            # 退出程序且不拋錯 (Exit Code 0)，GitHub Action 會正常完成，且無 Git 變更
+            sys.exit(0)
+
+        # 2. 確認有更新，執行 Pipeline
         processor = FFXIVItemDataProcessor()
         output_files = processor.run()
         
