@@ -88,7 +88,7 @@ const REPO = 'kuronekowen/ffxiv-item-data';
 
 async function getFFXIVData() {
   // 1. 查詢 jsDelivr API 取得最新 Release Tag (僅約幾百 Bytes)
-  const apiRes = await fetch(`[https://data.jsdelivr.com/v1/packages/gh/$](https://data.jsdelivr.com/v1/packages/gh/$){REPO}`);
+  const apiRes = await fetch(`https://data.jsdelivr.com/v1/packages/gh/${REPO}`);
   const apiData = await apiRes.json();
   const latestVersion = apiData.versions[0].version; // 例如 "2026.08.08-0328"
 
