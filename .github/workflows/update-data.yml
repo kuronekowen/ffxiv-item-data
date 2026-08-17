@@ -2,7 +2,8 @@ name: Update FFXIV Item Data
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 18 * * *'   # 日本时间 18:00
+      timezone: "Asia/Tokyo"
   workflow_dispatch:
 
 permissions:
