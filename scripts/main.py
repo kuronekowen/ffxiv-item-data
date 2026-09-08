@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-FFXIV 物品數據整合工具 (帶 Lodestone 自動更新檢查)
-1. 爬取 FFXIV 日本官網 Lodestone 判定今天是否有遊戲更新。
-2. 若有更新，才下載並合併 7 種語言的物品數據，輸出 CSV 和壓縮 JSON。
-3. 若無更新，跳過處理以節省系統資源。
+FFXIV 物品數據整合工具 (帶 GitHub Commit Hash 自動更新檢查)
+1. 每天檢查 4 個資料來源的最新 commit hash。
+2. 若與本地紀錄不一致，才下載並合併 7 種語言的物品數據，輸出 CSV 和壓縮 JSON。
+3. 更新完畢後寫入 commit_hashes.json，隔天直接比對即可。
 """
 
 import os
@@ -12,13 +12,11 @@ import json
 import gzip
 import logging
 import shutil
-import re
 from pathlib import Path
 from typing import Dict, List, Optional
 from datetime import datetime
 import pandas as pd
 import requests
-from bs4 import BeautifulSoup
 
 # 設置日誌
 logging.basicConfig(
@@ -45,51 +43,106 @@ LANG_ORDER = ["Ja", "En", "Fr", "De", "Cn", "Tc", "Ko"]
 OUTPUT_CSV = "ffxiv_items_all_languages.csv"
 OUTPUT_JSON_GZ = "ffxiv_items_all_languages.json.gz"
 VERSION_FILE = "version.txt"
-LODESTONE_URL = "https://jp.finalfantasyxiv.com/lodestone/news/category/3"
+COMMIT_HASHES_FILE = "commit_hashes.json"   # 儲存於 data/ 目錄
+
+# GitHub API 端點（用來取得最新 commit SHA）
+# 注意：ja 使用 path=csv/ja，其餘為 repo 根目錄
+COMMIT_ENDPOINTS = {
+    "ja": "https://api.github.com/repos/xivapi/ffxiv-datamining/commits?path=csv/ja&per_page=1",
+    "tc": "https://api.github.com/repos/thewakingsands/ffxiv-datamining-tc/commits?per_page=1",
+    "cn": "https://api.github.com/repos/thewakingsands/ffxiv-datamining-cn/commits?per_page=1",
+    "ko": "https://api.github.com/repos/Ra-Workspace/ffxiv-datamining-ko/commits?per_page=1",
+}
 
 
-class LodestoneUpdateChecker:
-    """Lodestone 官網更新檢查器"""
+class CommitHashChecker:
+    """透過 GitHub Commit Hash 判斷是否需要更新"""
 
-    @staticmethod
-    def has_today_update() -> bool:
-        """檢查 Lodestone 第一條新聞是否為『更新のお知らせ』且日期為今天"""
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
-        
+    def __init__(self, data_dir: Path):
+        self.data_dir = data_dir
+        self.hash_file = data_dir / COMMIT_HASHES_FILE
+        self.headers = {
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "FFXIV-Item-Data-Updater"
+        }
+
+    def _fetch_latest_sha(self, url: str) -> Optional[str]:
+        """從 GitHub API 取得最新 commit SHA"""
         try:
-            logger.info(f"🌐 正在檢查 Lodestone 官網更新公告: {LODESTONE_URL}")
-            resp = requests.get(LODESTONE_URL, headers=headers, timeout=15)
+            resp = requests.get(url, headers=self.headers, timeout=15)
             resp.raise_for_status()
-
-            soup = BeautifulSoup(resp.text, "html.parser")
-            titles = soup.find_all(class_="news__list--title")
-
-            if not titles:
-                logger.warning("⚠️ 未能解析到任何 Lodestone 新聞標題，預設進行更新。")
-                return True
-
-            first_title = titles[0].get_text(strip=True)
-            logger.info(f"📰 最新 Lodestone 公告: {first_title}")
-
-            # 取得當前日期的月/日格式 (無補零，例如 8/7, 10/12)
-            now = datetime.now()
-            today_str = f"{now.month}/{now.day}"
-
-            # 檢查條件：開頭為 '更新のお知らせ' 且包含當天日期 '(M/D)'
-            # 支援括號範例：更新のお知らせ(8/7) 或 更新のお知らせ (8/7)
-            is_update_news = first_title.startswith("更新のお知らせ")
-            has_today_date = f"({today_str})" in first_title
-
-            if is_update_news and has_today_date:
-                logger.info(f"✨ 偵測到今日 ({today_str}) 有遊戲更新公告！開始執行資料管道...")
-                return True
-            else:
-                logger.info(f"☕ 今日 ({today_str}) 尚未發布遊戲更新 (最新公告日期/類型不符)，跳過本次更新。")
-                return False
-
+            data = resp.json()
+            if isinstance(data, list) and len(data) > 0:
+                return data[0].get("sha")
+            logger.warning(f"⚠️ API 回傳格式異常: {url}")
+            return None
         except Exception as e:
-            logger.error(f"❌ 爬取 Lodestone 失敗: {e}，為防漏掉資料，將強制執行更新。")
-            return True
+            logger.error(f"❌ 取得 commit SHA 失敗 ({url}): {e}")
+            return None
+
+    def get_current_hashes(self) -> Dict[str, str]:
+        """取得目前 4 個來源的最新 commit hash"""
+        current = {}
+        for key, url in COMMIT_ENDPOINTS.items():
+            sha = self._fetch_latest_sha(url)
+            if sha:
+                current[key] = sha
+                logger.info(f"🔍 [{key.upper()}] 最新 commit: {sha[:12]}...")
+            else:
+                logger.warning(f"⚠️ 無法取得 [{key}] 的 commit hash")
+        return current
+
+    def load_recorded_hashes(self) -> Dict[str, str]:
+        """讀取本地紀錄的 commit hash"""
+        if not self.hash_file.exists():
+            logger.info("📄 尚未有 commit_hashes.json，視為需要更新")
+            return {}
+        try:
+            with open(self.hash_file, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            logger.warning(f"⚠️ 讀取 commit_hashes.json 失敗: {e}，視為需要更新")
+            return {}
+
+    def save_hashes(self, hashes: Dict[str, str]) -> None:
+        """更新完畢後寫入最新的 commit hash"""
+        self.data_dir.mkdir(exist_ok=True)
+        payload = {
+            "updated_at": datetime.now().isoformat(),
+            "hashes": hashes
+        }
+        with open(self.hash_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+        logger.info(f"✅ 已更新 commit hash 紀錄 → {self.hash_file}")
+
+    def needs_update(self) -> tuple[bool, Dict[str, str]]:
+        """
+        比對目前 hash 與本地紀錄
+        回傳 (是否需要更新, 目前最新的 hashes)
+        """
+        current = self.get_current_hashes()
+        if not current:
+            logger.warning("⚠️ 無法取得任何 commit hash，為防漏更新將強制執行")
+            return True, current
+
+        recorded = self.load_recorded_hashes()
+        recorded_hashes = recorded.get("hashes", {}) if isinstance(recorded, dict) else {}
+
+        changed = []
+        for key, sha in current.items():
+            old = recorded_hashes.get(key)
+            if old != sha:
+                changed.append(key)
+
+        if changed:
+            logger.info(f"✨ 偵測到資料來源有更新: {', '.join(changed).upper()}")
+            # ja 變動時，en/fr/de 也會一起更新（因為共用客戶端）
+            if "ja" in changed:
+                logger.info("   └─ JA 有變動 → 國際服 (JA/EN/FR/DE) 將一併更新")
+            return True, current
+        else:
+            logger.info("☕ 所有來源的 commit hash 皆與紀錄一致，跳過本次更新。")
+            return False, current
 
 
 class FFXIVItemDataProcessor:
@@ -369,14 +422,22 @@ Output Files:
 def main():
     """主程式入口"""
     try:
-        # 1. 執行 Lodestone 前置檢查
-        if not LodestoneUpdateChecker.has_today_update():
+        data_dir = Path("data")
+        checker = CommitHashChecker(data_dir)
+
+        # 1. 檢查是否需要更新
+        need_update, current_hashes = checker.needs_update()
+        if not need_update:
             # 退出程序且不拋錯 (Exit Code 0)，GitHub Action 會正常完成，且無 Git 變更
             sys.exit(0)
 
         # 2. 確認有更新，執行 Pipeline
         processor = FFXIVItemDataProcessor()
         output_files = processor.run()
+
+        # 3. 更新成功後寫入最新的 commit hash
+        if current_hashes:
+            checker.save_hashes(current_hashes)
         
         logger.info("🎉 所有處理程序完成！")
         logger.info(f"📄 CSV 檔案 (dist/): {output_files['csv']}")
