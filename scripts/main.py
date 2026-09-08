@@ -27,13 +27,13 @@ logger = logging.getLogger(__name__)
 
 # 1. 定義語系代碼與對應的 URL 端點
 URLS = {
-    "de": "https://cdn.jsdelivr.net/gh/xivapi/ffxiv-datamining/csv/de/Item.csv",
-    "en": "https://cdn.jsdelivr.net/gh/xivapi/ffxiv-datamining/csv/en/Item.csv",
-    "fr": "https://cdn.jsdelivr.net/gh/xivapi/ffxiv-datamining/csv/fr/Item.csv",
-    "ja": "https://cdn.jsdelivr.net/gh/xivapi/ffxiv-datamining/csv/ja/Item.csv",
-    "tc": "https://cdn.jsdelivr.net/gh/thewakingsands/ffxiv-datamining-tc/Item.csv",
-    "cn": "https://cdn.jsdelivr.net/gh/thewakingsands/ffxiv-datamining-cn/Item.csv",
-    "ko": "https://cdn.jsdelivr.net/gh/Ra-Workspace/ffxiv-datamining-ko/csv/Item.csv",
+    "de": "https://raw.githubusercontent.com/xivapi/ffxiv-datamining/refs/heads/master/csv/de/Item.csv",
+    "en": "https://raw.githubusercontent.com/xivapi/ffxiv-datamining/refs/heads/master/csv/en/Item.csv",
+    "fr": "https://raw.githubusercontent.com/xivapi/ffxiv-datamining/refs/heads/master/csv/fr/Item.csv",
+    "ja": "https://raw.githubusercontent.com/xivapi/ffxiv-datamining/refs/heads/master/csv/ja/Item.csv",
+    "tc": "https://raw.githubusercontent.com/thewakingsands/ffxiv-datamining-tc/refs/heads/main/Item.csv",
+    "cn": "https://raw.githubusercontent.com/thewakingsands/ffxiv-datamining-cn/refs/heads/master/Item.csv",
+    "ko": "https://raw.githubusercontent.com/Ra-Workspace/ffxiv-datamining-ko/refs/heads/master/csv/Item.csv",
 }
 
 # 語言順序
