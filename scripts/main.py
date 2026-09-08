@@ -427,8 +427,12 @@ def main():
 
         # 1. 檢查是否需要更新
         need_update, current_hashes = checker.needs_update()
+        
         if not need_update:
-            # 退出程序且不拋錯 (Exit Code 0)，GitHub Action 會正常完成，且無 Git 變更
+            # 明確告訴 GitHub Actions 不需要更新
+            if "GITHUB_OUTPUT" in os.environ:
+                with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                    f.write("SHOULD_UPDATE=false\n")
             sys.exit(0)
 
         # 2. 確認有更新，執行 Pipeline
@@ -439,6 +443,11 @@ def main():
         if current_hashes:
             checker.save_hashes(current_hashes)
         
+        # 4. 告訴 GitHub Actions 有更新，可以 commit / release
+        if "GITHUB_OUTPUT" in os.environ:
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("SHOULD_UPDATE=true\n")
+        
         logger.info("🎉 所有處理程序完成！")
         logger.info(f"📄 CSV 檔案 (dist/): {output_files['csv']}")
         logger.info(f"📦 JSON 壓縮檔 (dist/): {output_files['json_gz']}")
@@ -448,6 +457,10 @@ def main():
         
     except Exception as e:
         logger.error(f"❌ 處理過程中發生錯誤: {e}")
+        # 發生錯誤時也明確設為 false，避免誤觸發
+        if "GITHUB_OUTPUT" in os.environ:
+            with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+                f.write("SHOULD_UPDATE=false\n")
         raise
 
 if __name__ == "__main__":
